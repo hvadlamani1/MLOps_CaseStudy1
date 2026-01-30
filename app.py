@@ -1,131 +1,72 @@
 import gradio as gr
-from huggingface_hub import InferenceClient
-import os
+import torch
+import torchaudio
+import numpy as np
+from transformers import WhisperProcessor, WhisperForConditionalGeneration
 
-pipe = None
-stop_inference = False
+# Model loading function with caching
+def load_model():
+    device = "cuda:0" if torch.cuda.is_available() else "cpu"
+    torch_dtype = torch.float16 if torch.cuda.is_available() else torch.float32
+    
+    model = WhisperForConditionalGeneration.from_pretrained("tclin/whisper-large-v3-turbo-atcosim-finetune")
+    model = model.to(device=device, dtype=torch_dtype)
+    processor = WhisperProcessor.from_pretrained("tclin/whisper-large-v3-turbo-atcosim-finetune")
+    
+    return model, processor, device, torch_dtype
 
-# Fancy styling
-fancy_css = """
-#main-container {
-    background-color: #f0f0f0;
-    font-family: 'Arial', sans-serif;
-}
-.gradio-container {
-    max-width: 700px;
-    margin: 0 auto;
-    padding: 20px;
-    background: white;
-    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
-    border-radius: 10px;
-}
-.gr-button {
-    background-color: #4CAF50;
-    color: white;
-    border: none;
-    border-radius: 5px;
-    padding: 10px 20px;
-    cursor: pointer;
-    transition: background-color 0.3s ease;
-}
-.gr-button:hover {
-    background-color: #45a049;
-}
-.gr-slider input {
-    color: #4CAF50;
-}
-.gr-chat {
-    font-size: 16px;
-}
-#title {
-    text-align: center;
-    font-size: 2em;
-    margin-bottom: 20px;
-    color: #333;
-}
-"""
+# Load model and processor once at startup
+model, processor, device, torch_dtype = load_model()
 
-def respond(
-    message,
-    history: list[dict[str, str]],
-    system_message,
-    max_tokens,
-    temperature,
-    top_p,
-    hf_token: gr.OAuthToken,
-    use_local_model: bool,
-):
-    global pipe
+# Define the transcription function
+def transcribe_audio(audio_file):
+    # Check if audio file exists
+    if audio_file is None:
+        return "Please upload an audio file"
+    
+    try:
+        # Load and preprocess audio
+        waveform, sample_rate = torchaudio.load(audio_file)
+        
+        # Resample to 16kHz (required for Whisper models)
+        if sample_rate != 16000:
+            resampler = torchaudio.transforms.Resample(orig_freq=sample_rate, new_freq=16000)
+            waveform = resampler(waveform)
+        
+        # Convert stereo to mono if needed
+        if waveform.shape[0] > 1:
+            waveform = waveform.mean(dim=0, keepdim=True)
+            
+        # Convert to numpy array
+        waveform_np = waveform.squeeze().cpu().numpy()
+        
+        # Process with model
+        input_features = processor(waveform_np, sampling_rate=16000, return_tensors="pt").input_features
+        input_features = input_features.to(device=device, dtype=torch_dtype)
+        
+        generated_ids = model.generate(input_features, max_new_tokens=128)
+        transcription = processor.batch_decode(generated_ids, skip_special_tokens=True)[0]
+        
+        return transcription
+        
+    except Exception as e:
+        return f"Error processing audio: {str(e)}"
 
-    # Build messages from history
-    messages = [{"role": "system", "content": system_message}]
-    messages.extend(history)
-    messages.append({"role": "user", "content": message})
-
-    response = ""
-
-    if use_local_model:
-        print("[MODE] local")
-        from transformers import pipeline
-        import torch
-        if pipe is None:
-            pipe = pipeline("text-generation", model="microsoft/Phi-3-mini-4k-instruct")
-
-        # Build prompt as plain text
-        prompt = "\n".join([f"{m['role']}: {m['content']}" for m in messages])
-
-        outputs = pipe(
-            prompt,
-            max_new_tokens=max_tokens,
-            do_sample=True,
-            temperature=temperature,
-            top_p=top_p,
-        )
-
-        response = outputs[0]["generated_text"][len(prompt):]
-        yield response.strip()
-
-    else:
-        print("[MODE] api")
-
-        if hf_token is None or not getattr(hf_token, "token", None):
-            yield "⚠️ Please log in with your Hugging Face account first."
-            return
-
-        client = InferenceClient(token=hf_token.token, model="openai/gpt-oss-20b")
-
-        for chunk in client.chat_completion(
-            messages,
-            max_tokens=max_tokens,
-            stream=True,
-            temperature=temperature,
-            top_p=top_p,
-        ):
-            choices = chunk.choices
-            token = ""
-            if len(choices) and choices[0].delta.content:
-                token = choices[0].delta.content
-            response += token
-            yield response
-
-
-chatbot = gr.ChatInterface(
-    fn=respond,
-    additional_inputs=[
-        gr.Textbox(value="You are a friendly Chatbot.", label="System message"),
-        gr.Slider(minimum=1, maximum=2048, value=512, step=1, label="Max new tokens"),
-        gr.Slider(minimum=0.1, maximum=2.0, value=0.7, step=0.1, label="Temperature"),
-        gr.Slider(minimum=0.1, maximum=1.0, value=0.95, step=0.05, label="Top-p (nucleus sampling)"),
-        gr.Checkbox(label="Use Local Model", value=False),
+# Create Gradio interface
+demo = gr.Interface(
+    fn=transcribe_audio,
+    inputs=gr.Audio(type="filepath"),
+    outputs="text",
+    title="ATC Speech Transcription",
+    description="Convert Air Traffic Control (ATC) radio communications to text. Upload your own ATC audio or try the examples below.",
+    examples=[
+        ["atc-sample-1.wav"],
+        ["atc-sample-2.wav"],
+        ["atc-sample-3.wav"]
     ],
-    type="messages",
+    article="This model is fine-tuned on the ATCOSIM dataset with a 3.73% Word Error Rate on ATC communications. It is specifically optimized for aviation terminology, callsigns, and standard phraseology. Audio should be 16kHz sample rate for best results."
 )
 
-with gr.Blocks(css=fancy_css) as demo:
-    with gr.Row():
-        gr.Markdown("<h1 style='text-align: center;'>🌟 Fancy AI Chatbot 🌟</h1>")
-        gr.LoginButton()
-    chatbot.render()
-
+# Launch the interface
 if __name__ == "__main__":
     demo.launch()
