@@ -70,7 +70,7 @@ def atc_english_translation(atc_prompt):
 
     # Qwen uses a standard chat template
     messages = [
-        {"role": "system", "content": "You are an aviation expert. Translate the following technical ATC radio transmission into simple, conversational Plain English for a student pilot. Be concise."},
+        {"role": "system", "content": "You are an aviation expert. Translate the following technical ATC radio transmission into simple, conversational plain English. Do not give definitions, just simply translate to conversational english! Be concise."},
         {"role": "user", "content": atc_prompt}
     ]
     
