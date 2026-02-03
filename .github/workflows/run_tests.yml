@@ -1,0 +1,26 @@
+name: Run chatbot test
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          pip install pytest gradio[oauth] huggingface_hub
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+
+      - name: Run pytest with HF token
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: pytest -q

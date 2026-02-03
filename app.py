@@ -12,59 +12,61 @@ import librosa
 
 
 # --- Model Loading with Mac Fixes ---
-def load_model():
+
+# Global placeholders
+model = None
+processor = None
+atc_translator = None
+
+def detect_device():
     # Check for CUDA (Nvidia)
     if torch.cuda.is_available():
-        device = "cuda:0"
-        torch_dtype = torch.float16
         print("Status: Detected Nvidia GPU. Using CUDA (float16).")
+        return "cuda:0", torch.float16
 
     # Check for MPS (Apple Silicon - M1/M2/M3)
     elif torch.backends.mps.is_available():
-        device = "mps"
-        # CRITICAL FIX: Macs must use float32.
-        # float16 on MPS causes the "!!!!!!" infinite loop bug.
-        torch_dtype = torch.float32
         print("Status: Detected Apple Silicon. Using MPS (float32) to prevent loops.")
+        return "mps", torch.float32
 
     # Fallback to CPU
     else:
-        device = "cpu"
-        torch_dtype = torch.float32
         print("Status: No GPU detected. Using CPU (slow).")
+        return "cpu", torch.float32
 
-    # Load model with the determined precision
-    model = WhisperForConditionalGeneration.from_pretrained(
-        "tclin/whisper-large-v3-turbo-atcosim-finetune",
-        torch_dtype=torch_dtype
-    )
-    model = model.to(device)
+# Detect device immediately for Gradio interface labels
+device, torch_dtype = detect_device()
 
-    processor = WhisperProcessor.from_pretrained("tclin/whisper-large-v3-turbo-atcosim-finetune")
-
-    return model, processor, device, torch_dtype
-
-
-# Load resources once
-model, processor, device, torch_dtype = load_model()
-
-def load_translator():
-    # Qwen2.5-1.5B is highly compatible and very smart for its size
-    model_id = "Qwen/Qwen2.5-1.5B-Instruct"
+def load_resources():
+    global model, processor, atc_translator, device, torch_dtype
     
-    tokenizer = AutoTokenizer.from_pretrained(model_id)
-    model = AutoModelForCausalLM.from_pretrained(
-        model_id,
-        torch_dtype="auto", 
-        device_map="auto"
-    )
-    
-    translator = pipeline("text-generation", model=model, tokenizer=tokenizer)
-    return translator
+    if model is None:
+        print("Loading Whisper model...")
+        loaded_model = WhisperForConditionalGeneration.from_pretrained(
+            "tclin/whisper-large-v3-turbo-atcosim-finetune",
+            torch_dtype=torch_dtype
+        )
+        model = loaded_model.to(device)
+        processor = WhisperProcessor.from_pretrained("tclin/whisper-large-v3-turbo-atcosim-finetune")
 
-atc_translator = load_translator()
+    if atc_translator is None:
+        print("Loading Translator model...")
+        # Qwen2.5-1.5B is highly compatible and very smart for its size
+        model_id = "Qwen/Qwen2.5-1.5B-Instruct"
+        
+        tokenizer = AutoTokenizer.from_pretrained(model_id)
+        llm_model = AutoModelForCausalLM.from_pretrained(
+            model_id,
+            torch_dtype="auto", 
+            device_map="auto"
+        )
+        
+        atc_translator = pipeline("text-generation", model=llm_model, tokenizer=tokenizer)
+
+
 
 def atc_english_translation(atc_prompt):
+    load_resources()
     if not atc_prompt or "Error" in atc_prompt:
         return "Waiting for valid transcription..."
 
@@ -94,6 +96,7 @@ def atc_english_translation(atc_prompt):
 
 # --- Transcription Logic ---
 def transcribe_audio(audio_file):
+    load_resources()
     if audio_file is None:
         return "Please upload an audio file"
 
