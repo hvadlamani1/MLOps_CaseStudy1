@@ -12,5 +12,5 @@ jobs:
         env:
           NTFY_URL: ${{ secrets.NTFY_URL }}
         run: |
-          curl -d "A new commit was pushed to the main branch by $GITHUB_ACTOR. :smile:" \
+          curl -d "A new commit was pushed to the main branch by $GITHUB_ACTOR. ✈️" \
           $NTFY_URL
