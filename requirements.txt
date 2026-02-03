@@ -3,3 +3,6 @@ torch==2.6.0
 torchaudio==2.6.0
 transformers==4.37.2
 numpy==1.26.4
+soundfile
+librosa
+accelerate
