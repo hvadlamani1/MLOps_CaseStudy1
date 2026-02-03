@@ -85,6 +85,7 @@ def atc_english_translation(atc_prompt):
         outputs = atc_translator(
             prompt,
             do_sample=False,
+            max_new_tokens=256,
             return_full_text=False
         )
         return outputs[0]['generated_text'].strip()
