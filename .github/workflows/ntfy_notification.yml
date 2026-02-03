@@ -10,7 +10,7 @@ jobs:
     steps:
       - name: Send Ntfy notification
         env:
-          NTFY_URL: ${{ secrets.NTFY_URL }} # Make sure to set this to your ntfy.sh topic URL in Github Secrets! (e.g., https://ntfy.sh/my_secret_topic)
+          NTFY_URL: ${{ secrets.NTFY_URL }}
         run: |
           curl -d "A new commit was pushed to the main branch by $GITHUB_ACTOR. :smile:" \
           $NTFY_URL
