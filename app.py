@@ -83,8 +83,7 @@ def atc_english_translation(atc_prompt):
 
     try:
         outputs = atc_translator(
-            prompt, 
-            max_new_tokens=100, 
+            prompt,
             do_sample=False,
             return_full_text=False
         )
