@@ -134,20 +134,23 @@ def transcribe_audio(audio_file, use_local_model, hf_token: gr.OAuthToken = None
             )
 
             transcription = processor.batch_decode(generated_ids, skip_special_tokens=True)[0]
+            
+            yield transcription, "Waiting for translation..."
 
             translated_text = atc_english_translation(transcription)
 
-            return transcription, translated_text
+            yield transcription, translated_text
 
         except Exception as e:
-            return f"Error processing audio: {str(e)}", f"Error: {str(e)}"
+            yield f"Error processing audio: {str(e)}", f"Error: {str(e)}"
     
     else:
         # API MODE
         print("[MODE] api")
 
         if hf_token is None or not hf_token.token:
-            return "⚠️ Please log in with your Hugging Face account first.", "Please log in."
+            yield "⚠️ Please log in with your Hugging Face account first.", "Please log in."
+            return
 
         client = InferenceClient(token=hf_token.token)
 
@@ -158,6 +161,8 @@ def transcribe_audio(audio_file, use_local_model, hf_token: gr.OAuthToken = None
                 model="openai/whisper-large-v3-turbo"
             )
             transcription = getattr(asr_result, "text", asr_result.get("text") if isinstance(asr_result, dict) else str(asr_result))
+            
+            yield transcription, "Waiting for translation..."
             
             # API Qwen
             messages = [
@@ -173,14 +178,14 @@ def transcribe_audio(audio_file, use_local_model, hf_token: gr.OAuthToken = None
             
             translated_text = chat_completion.choices[0].message.content
             
-            return transcription, translated_text
+            yield transcription, translated_text
 
         except Exception as e:
             error_msg = str(e)
             print(f"DEBUG: API Error: {error_msg}")
             
             if "403" in error_msg or "permissions" in error_msg.lower():
-                return (
+                yield (
                     f"⚠️ API Permission Error: {error_msg}\n\n"
                     "FIX: Your Hugging Face token needs 'Inference' permissions.\n"
                     "1. Go to HF Settings -> Access Tokens\n"
@@ -188,8 +193,9 @@ def transcribe_audio(audio_file, use_local_model, hf_token: gr.OAuthToken = None
                     "3. Check 'Make calls to the serverless inference API'",
                     "API Permission Error"
                 )
+                return
             
-            return f"API Error: {error_msg}", "API Error"
+            yield f"API Error: {error_msg}", "API Error"
 
 
 # --- Gradio Interface ---
