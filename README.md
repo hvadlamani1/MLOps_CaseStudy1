@@ -16,4 +16,4 @@ An example chatbot using [Gradio](https://gradio.app), [`huggingface_hub`](https
 
 Increment this to force push to HF: 1239
 
-Ponytails are awesome!!!
+Ponytails are awesome!!
