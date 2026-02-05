@@ -58,7 +58,7 @@ class TestApp(unittest.TestCase):
         app.atc_translator.return_value = [{'generated_text': "Delta 123, please climb to 30,000 feet."}]
 
         # 3. execution
-        transcription, translation = app.transcribe_audio("dummy_path.wav")
+        transcription, translation = app.transcribe_audio("dummy_path.wav", use_local_model=True)
 
         # 4. Assertions
         self.assertEqual(transcription, "Delta 123, climb and maintain level 300")

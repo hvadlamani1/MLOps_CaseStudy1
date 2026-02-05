@@ -4,6 +4,7 @@ import torchaudio
 import numpy as np
 from transformers import WhisperProcessor, WhisperForConditionalGeneration
 from transformers import AutoModelForCausalLM, AutoTokenizer, pipeline
+from huggingface_hub import InferenceClient
 
 import os
 
@@ -95,57 +96,113 @@ def atc_english_translation(atc_prompt):
         return f"Translation Error: {str(e)}"
 
 # --- Transcription Logic ---
-def transcribe_audio(audio_file):
-    load_resources()
+def transcribe_audio(audio_file, use_local_model, hf_token: gr.OAuthToken = None):
     if audio_file is None:
-        return "Please upload an audio file"
+        return "Please upload an audio file", "Please upload an audio file"
 
-    try:
-        # 1. Use soundfile to load. It bypasses the libtorchcodec system errors.
-        speech, sample_rate = sf.read(audio_file)
-        
-        # 2. Ensure it's float32 (Whisper requirement)
-        speech = speech.astype(np.float32)
+    if use_local_model:
+        load_resources()
+        try:
+            # 1. Use soundfile to load. It bypasses the libtorchcodec system errors.
+            speech, sample_rate = sf.read(audio_file)
+            
+            # 2. Ensure it's float32 (Whisper requirement)
+            speech = speech.astype(np.float32)
 
-        # 3. Convert Stereo to Mono
-        if len(speech.shape) > 1:
-            speech = np.mean(speech, axis=1)
+            # 3. Convert Stereo to Mono
+            if len(speech.shape) > 1:
+                speech = np.mean(speech, axis=1)
 
-        # 4. Resample to 16kHz using librosa (more reliable than torchaudio on clusters)
-        if sample_rate != 16000:
-            speech = librosa.resample(speech, orig_sr=sample_rate, target_sr=16000)
+            # 4. Resample to 16kHz using librosa (more reliable than torchaudio on clusters)
+            if sample_rate != 16000:
+                speech = librosa.resample(speech, orig_sr=sample_rate, target_sr=16000)
 
-        # 5. Prepare for Whisper
-        input_features = processor(
-            speech,
-            sampling_rate=16000,
-            return_tensors="pt"
-        ).input_features
+            # 5. Prepare for Whisper
+            input_features = processor(
+                speech,
+                sampling_rate=16000,
+                return_tensors="pt"
+            ).input_features
 
-        # Move to device (MPS/CUDA/CPU)
-        input_features = input_features.to(device=device, dtype=torch_dtype)
+            # Move to device (MPS/CUDA/CPU)
+            input_features = input_features.to(device=device, dtype=torch_dtype)
 
-        # 6. Generate transcription
-        generated_ids = model.generate(
-            input_features,
-            max_new_tokens=128,
-            repetition_penalty=1.1
-        )
+            # 6. Generate transcription
+            generated_ids = model.generate(
+                input_features,
+                max_new_tokens=128,
+                repetition_penalty=1.1
+            )
 
-        transcription = processor.batch_decode(generated_ids, skip_special_tokens=True)[0]
+            transcription = processor.batch_decode(generated_ids, skip_special_tokens=True)[0]
 
-        translated_text = atc_english_translation(transcription)
+            translated_text = atc_english_translation(transcription)
 
-        return transcription, translated_text
+            return transcription, translated_text
 
-    except Exception as e:
-        return f"Error processing audio: {str(e)}"
+        except Exception as e:
+            return f"Error processing audio: {str(e)}", f"Error: {str(e)}"
+    
+    else:
+        # API MODE
+        print("[MODE] api")
+
+        if hf_token is None or not hf_token.token:
+            return "⚠️ Please log in with your Hugging Face account first.", "Please log in."
+
+        client = InferenceClient(token=hf_token.token)
+
+        try:
+            # 1. API Whisper
+            # The custom finetune 'tclin/whisper-large-v3-turbo-atcosim-finetune' is likely NOT hosted on the free Serverless API.
+            # We fallback to the powerful base model 'openai/whisper-large-v3-turbo' for the API toggle.
+            asr_result = client.automatic_speech_recognition(
+                audio_file, 
+                model="openai/whisper-large-v3-turbo"
+            )
+            # asr_result is typically an object with 'text' attribute or a dict
+            transcription = getattr(asr_result, "text", asr_result.get("text") if isinstance(asr_result, dict) else str(asr_result))
+            
+            # 2. API Qwen
+            messages = [
+                {"role": "system", "content": "You are an aviation expert. Translate the following technical ATC radio transmission into simple, conversational plain English. Do not give definitions, just simply translate to conversational english! Be concise."},
+                {"role": "user", "content": transcription}
+            ]
+            
+            chat_completion = client.chat_completion(
+                messages,
+                model="Qwen/Qwen2.5-1.5B-Instruct", 
+                max_tokens=256
+            )
+            
+            translated_text = chat_completion.choices[0].message.content
+            
+            return transcription, translated_text
+
+        except Exception as e:
+            error_msg = str(e)
+            print(f"DEBUG: API Error: {error_msg}")
+            
+            if "403" in error_msg or "permissions" in error_msg.lower():
+                return (
+                    f"⚠️ API Permission Error: {error_msg}\n\n"
+                    "FIX: Your Hugging Face token needs 'Inference' permissions.\n"
+                    "1. Go to HF Settings -> Access Tokens\n"
+                    "2. Edit your token\n"
+                    "3. Check 'Make calls to the serverless inference API'",
+                    "API Permission Error"
+                )
+            
+            return f"API Error: {error_msg}", "API Error"
 
 
 # --- Gradio Interface ---
-demo = gr.Interface(
+iface = gr.Interface(
     fn=transcribe_audio,
-    inputs=gr.Audio(type="filepath"),
+    inputs=[
+        gr.Audio(type="filepath"),
+        gr.Checkbox(label="Use Local Model", value=False)
+    ],
     outputs=[
         gr.Textbox(label="Step 1: Raw ATC Transcription"),
         gr.Textbox(label="Step 2: Plain English Interpretation")
@@ -162,7 +219,9 @@ demo = gr.Interface(
     allow_flagging="never"
 )
 
-
+with gr.Blocks() as demo:
+    gr.LoginButton()
+    iface.render()
 
 if __name__ == "__main__":
     demo.launch(server_name="0.0.0.0", server_port=7860, share=True, show_api=False)
