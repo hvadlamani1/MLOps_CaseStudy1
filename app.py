@@ -14,7 +14,6 @@ import librosa
 
 # --- Model Loading with Mac Fixes ---
 
-# Global placeholders
 model = None
 processor = None
 atc_translator = None
@@ -51,8 +50,8 @@ def load_resources():
         processor = WhisperProcessor.from_pretrained("tclin/whisper-large-v3-turbo-atcosim-finetune")
 
     if atc_translator is None:
-        print("Loading Translator model...")
-        # Qwen2.5-1.5B is highly compatible and very smart for its size
+        print("Loading Translator model")
+        # Using Qwen for translation
         model_id = "Qwen/Qwen2.5-1.5B-Instruct"
         
         tokenizer = AutoTokenizer.from_pretrained(model_id)
@@ -69,7 +68,7 @@ def load_resources():
 def atc_english_translation(atc_prompt):
     load_resources()
     if not atc_prompt or "Error" in atc_prompt:
-        return "Waiting for valid transcription..."
+        return "Waiting for transcription"
 
     # Qwen uses a standard chat template
     messages = [
@@ -103,31 +102,31 @@ def transcribe_audio(audio_file, use_local_model, hf_token: gr.OAuthToken = None
     if use_local_model:
         load_resources()
         try:
-            # 1. Use soundfile to load. It bypasses the libtorchcodec system errors.
+            # Use soundfile to load. It bypasses the libtorchcodec system errors.
             speech, sample_rate = sf.read(audio_file)
             
-            # 2. Ensure it's float32 (Whisper requirement)
+            # Ensure it's float32 for whisper
             speech = speech.astype(np.float32)
 
-            # 3. Convert Stereo to Mono
+            # Convert Stereo to Mono
             if len(speech.shape) > 1:
                 speech = np.mean(speech, axis=1)
 
-            # 4. Resample to 16kHz using librosa (more reliable than torchaudio on clusters)
+            # re-sample to different hz
             if sample_rate != 16000:
                 speech = librosa.resample(speech, orig_sr=sample_rate, target_sr=16000)
 
-            # 5. Prepare for Whisper
+            # Prepare for Whisper
             input_features = processor(
                 speech,
                 sampling_rate=16000,
                 return_tensors="pt"
             ).input_features
 
-            # Move to device (MPS/CUDA/CPU)
+            # Move to device 
             input_features = input_features.to(device=device, dtype=torch_dtype)
 
-            # 6. Generate transcription
+            # Generate transcription
             generated_ids = model.generate(
                 input_features,
                 max_new_tokens=128,
@@ -153,17 +152,14 @@ def transcribe_audio(audio_file, use_local_model, hf_token: gr.OAuthToken = None
         client = InferenceClient(token=hf_token.token)
 
         try:
-            # 1. API Whisper
-            # The custom finetune 'tclin/whisper-large-v3-turbo-atcosim-finetune' is likely NOT hosted on the free Serverless API.
-            # We fallback to the powerful base model 'openai/whisper-large-v3-turbo' for the API toggle.
+            # API Whisper
             asr_result = client.automatic_speech_recognition(
                 audio_file, 
                 model="openai/whisper-large-v3-turbo"
             )
-            # asr_result is typically an object with 'text' attribute or a dict
             transcription = getattr(asr_result, "text", asr_result.get("text") if isinstance(asr_result, dict) else str(asr_result))
             
-            # 2. API Qwen
+            # API Qwen
             messages = [
                 {"role": "system", "content": "You are an aviation expert. Translate the following technical ATC radio transmission into simple, conversational plain English. Do not give definitions, just simply translate to conversational english! Be concise."},
                 {"role": "user", "content": transcription}
@@ -210,11 +206,8 @@ iface = gr.Interface(
     title="ATC Speech Transcription",
     description=f"Running on: {device.upper()}",
     
-    # 1. REMOVE the examples for now 
-    # (We will add them back once the base app works)
     examples=None, 
     
-    # 2. Disable caching and flagging (common crash points in v4.44)
     cache_examples=False,
     allow_flagging="never"
 )

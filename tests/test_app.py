@@ -5,14 +5,14 @@ from unittest.mock import MagicMock, patch
 import numpy as np
 import torch
 
-# Add parent directory to path
+# add parent directory to path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 import app
 
 class TestApp(unittest.TestCase):
     def setUp(self):
-        # Reset resources before each test
+        # reset resources before test
         app.model = None
         app.processor = None
         app.atc_translator = None
@@ -23,14 +23,12 @@ class TestApp(unittest.TestCase):
         """
         Test the transcribe_audio functionality by mocking model inference.
         """
-        # 1. Setup Mock Audio
-        # sf.read returns (data, samplerate)
-        # Create a dummy audio array (1 second of silence)
+        # Setup Mock Audio
+        # Create a dummy audio array 
         dummy_audio = np.zeros(16000, dtype=np.float32)
         mock_sf_read.return_value = (dummy_audio, 16000)
 
-        # 2. Setup Mock Resources
-        # We need to manually set the globals because we mocked load_resources to do nothing
+        # Setup Mock Resources
         app.model = MagicMock()
         app.processor = MagicMock()
         app.atc_translator = MagicMock()
@@ -57,10 +55,10 @@ class TestApp(unittest.TestCase):
         # The pipeline itself is callable
         app.atc_translator.return_value = [{'generated_text': "Delta 123, please climb to 30,000 feet."}]
 
-        # 3. execution
+        # execution
         transcription, translation = app.transcribe_audio("dummy_path.wav", use_local_model=True)
 
-        # 4. Assertions
+        # Assertions
         self.assertEqual(transcription, "Delta 123, climb and maintain level 300")
         self.assertEqual(translation, "Delta 123, please climb to 30,000 feet.")
         
