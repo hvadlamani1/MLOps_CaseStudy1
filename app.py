@@ -11,9 +11,6 @@ import os
 import soundfile as sf
 import librosa
 
-
-# --- Model Loading with Mac Fixes ---
-
 model = None
 processor = None
 atc_translator = None
@@ -184,16 +181,11 @@ def transcribe_audio(audio_file, use_local_model, hf_token: gr.OAuthToken = None
 
         except Exception as e:
             error_msg = str(e)
-            print(f"DEBUG: API Error: {error_msg}")
+            print(f"API Error: {error_msg}")
             
             if "403" in error_msg or "permissions" in error_msg.lower():
                 yield (
                     f"⚠️ API Permission Error: {error_msg}\n\n"
-                    "FIX: Your Hugging Face token needs 'Inference' permissions.\n"
-                    "1. Go to HF Settings -> Access Tokens\n"
-                    "2. Edit your token\n"
-                    "3. Check 'Make calls to the serverless inference API'",
-                    "API Permission Error"
                 )
                 return
             
