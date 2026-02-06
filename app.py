@@ -211,7 +211,7 @@ def transcribe_audio(audio_file, use_local_model, hf_token: gr.OAuthToken = None
 
 
 # --- Gradio Interface ---
-iface = gr.Interface(
+grInt = gr.Interface(
     fn=transcribe_audio,
     inputs=[
         gr.Audio(type="filepath"),
@@ -232,7 +232,7 @@ iface = gr.Interface(
 
 with gr.Blocks() as demo:
     gr.LoginButton()
-    iface.render()
+    grInt.render()
 
 if __name__ == "__main__":
     demo.launch(server_name="0.0.0.0", server_port=7860, share=True, show_api=False)
