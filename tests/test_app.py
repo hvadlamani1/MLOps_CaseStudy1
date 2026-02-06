@@ -56,11 +56,13 @@ class TestApp(unittest.TestCase):
         app.atc_translator.return_value = [{'generated_text': "Delta 123, please climb to 30,000 feet."}]
 
         # execution
-        transcription, translation = app.transcribe_audio("dummy_path.wav", use_local_model=True)
+        generator = app.transcribe_audio("dummy_path.wav", use_local_model=True)
+        results = list(generator)
+        final_transcription_update, final_translation_update = results[-1]
 
         # Assertions
-        self.assertEqual(transcription, "Delta 123, climb and maintain level 300")
-        self.assertEqual(translation, "Delta 123, please climb to 30,000 feet.")
+        self.assertEqual(final_transcription_update['value'], "Delta 123, climb and maintain level 300")
+        self.assertEqual(final_translation_update['value'], "Delta 123, please climb to 30,000 feet.")
         
         # Verify calls
         mock_load_resources.assert_called()
