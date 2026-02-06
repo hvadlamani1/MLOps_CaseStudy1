@@ -18,18 +18,19 @@ model = None
 processor = None
 atc_translator = None
 
+# --- Detecting Device ---
 def detect_device():
     # Check for CUDA (Nvidia)
     if torch.cuda.is_available():
         print("Status: Detected Nvidia GPU. Using CUDA (float16).")
         return "cuda:0", torch.float16
 
-    # Check for MPS (Apple Silicon - M1/M2/M3)
+    # Check for MPS (Apple)
     elif torch.backends.mps.is_available():
         print("Status: Detected Apple Silicon. Using MPS (float32) to prevent loops.")
         return "mps", torch.float32
 
-    # Fallback to CPU
+    # Fallback to CPU incase no GPU is avail
     else:
         print("Status: No GPU detected. Using CPU (slow).")
         return "cpu", torch.float32
@@ -37,6 +38,7 @@ def detect_device():
 # Detect device immediately for Gradio interface labels
 device, torch_dtype = detect_device()
 
+# --- Loading Local Model ---
 def load_resources():
     global model, processor, atc_translator, device, torch_dtype
     
@@ -64,7 +66,7 @@ def load_resources():
         atc_translator = pipeline("text-generation", model=llm_model, tokenizer=tokenizer)
 
 
-
+# --- Translation Logic ---
 def atc_english_translation(atc_prompt):
     load_resources()
     if not atc_prompt or "Error" in atc_prompt:
