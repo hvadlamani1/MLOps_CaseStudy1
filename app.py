@@ -1,4 +1,5 @@
 import gradio as gr
+import time
 import torch
 import torchaudio
 import numpy as np
@@ -101,6 +102,8 @@ def transcribe_audio(audio_file, use_local_model, hf_token: gr.OAuthToken = None
     if use_local_model:
         load_resources()
         try:
+            t0 = time.time()
+            
             # Use soundfile to load. It bypasses the libtorchcodec system errors.
             speech, sample_rate = sf.read(audio_file)
             
@@ -134,11 +137,18 @@ def transcribe_audio(audio_file, use_local_model, hf_token: gr.OAuthToken = None
 
             transcription = processor.batch_decode(generated_ids, skip_special_tokens=True)[0]
             
-            yield transcription, "Waiting for translation..."
+            t1 = time.time()
+            models_time = f"Metadata: Whisper took {t1 - t0:.2f}s"
+            
+            yield gr.update(value=transcription, label=f"Step 1: Raw ATC Transcription ({t1 - t0:.2f}s)"), \
+                  gr.update(value="Waiting for translation...", label="Step 2: Plain English Interpretation")
 
             translated_text = atc_english_translation(transcription)
 
-            yield transcription, translated_text
+            t2 = time.time()
+            
+            yield gr.update(value=transcription, label=f"Step 1: Raw ATC Transcription ({t1 - t0:.2f}s)"), \
+                  gr.update(value=translated_text, label=f"Step 2: Plain English Interpretation ({t2 - t1:.2f}s)")
 
         except Exception as e:
             yield f"Error processing audio: {str(e)}", f"Error: {str(e)}"
@@ -154,6 +164,8 @@ def transcribe_audio(audio_file, use_local_model, hf_token: gr.OAuthToken = None
         client = InferenceClient(token=hf_token.token)
 
         try:
+            t0 = time.time()
+            
             # API Whisper
             asr_result = client.automatic_speech_recognition(
                 audio_file, 
@@ -161,7 +173,10 @@ def transcribe_audio(audio_file, use_local_model, hf_token: gr.OAuthToken = None
             )
             transcription = getattr(asr_result, "text", asr_result.get("text") if isinstance(asr_result, dict) else str(asr_result))
             
-            yield transcription, "Waiting for translation..."
+            t1 = time.time()
+            
+            yield gr.update(value=transcription, label=f"Step 1: Raw ATC Transcription ({t1 - t0:.2f}s)"), \
+                  gr.update(value="Waiting for translation...", label="Step 2: Plain English Interpretation")
             
             # API Qwen
             messages = [
@@ -177,7 +192,10 @@ def transcribe_audio(audio_file, use_local_model, hf_token: gr.OAuthToken = None
             
             translated_text = chat_completion.choices[0].message.content
             
-            yield transcription, translated_text
+            t2 = time.time()
+            
+            yield gr.update(value=transcription, label=f"Step 1: Raw ATC Transcription ({t1 - t0:.2f}s)"), \
+                  gr.update(value=translated_text, label=f"Step 2: Plain English Interpretation ({t2 - t1:.2f}s)")
 
         except Exception as e:
             error_msg = str(e)
